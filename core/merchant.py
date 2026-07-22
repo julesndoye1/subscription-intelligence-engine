@@ -1,182 +1,288 @@
 """
-=========================================================
-Subscription Intelligence Agent
-Merchant Intelligence Module
-=========================================================
+merchant.py
+===========
 
-This module loads the merchant database from CSV and
-provides functions for:
+Merchant Knowledge Base
 
-- Merchant normalization
-- Merchant category lookup
-- Merchant billing frequency lookup
+Responsibilities
+----------------
+1. Load the merchant database.
+2. Normalize transaction descriptions.
+3. Match merchants using aliases.
+4. Return standardized Merchant objects.
 
-Author:
-Subscription Intelligence Team
-
-Version:
-1.0
+Author: Jules N
 """
 
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, List, Optional
+
 import pandas as pd
 
-# -------------------------------------------------------
-# Locate merchant database
-# -------------------------------------------------------
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-CSV_FILE = DATA_DIR / "merchant_database.csv"
+logger = logging.getLogger(__name__)
 
 
-# -------------------------------------------------------
-# Load merchant database
-# -------------------------------------------------------
+# ==========================================================
+# Merchant Model
+# ==========================================================
 
-try:
-    merchant_db = pd.read_csv(CSV_FILE)
-
-    # Replace missing values with empty strings
-    merchant_db = merchant_db.fillna("")
-
-except FileNotFoundError:
-    raise FileNotFoundError(
-        f"\nMerchant database not found:\n{CSV_FILE}\n"
-        "Please create data/merchant_database.csv"
-    )
-
-
-# -------------------------------------------------------
-# Build lookup dictionaries
-# -------------------------------------------------------
-
-merchant_lookup = {}
-category_lookup = {}
-frequency_lookup = {}
-
-for _, row in merchant_db.iterrows():
-
-    merchant = str(row["Merchant"]).strip().upper()
-    category = str(row["Category"]).strip()
-    frequency = str(row["Frequency"]).strip()
-
-    category_lookup[merchant] = category
-    frequency_lookup[merchant] = frequency
-
-    aliases = str(row["Aliases"]).split(";")
-
-    # Register official merchant name
-    merchant_lookup[merchant] = merchant
-
-    # Register aliases
-    for alias in aliases:
-        alias = alias.strip().upper()
-
-        if alias:
-            merchant_lookup[alias] = merchant
-
-
-# -------------------------------------------------------
-# Public Functions
-# -------------------------------------------------------
-
-def normalize(description):
+@dataclass(frozen=True)
+class Merchant:
     """
-    Normalize a transaction description to
-    a standard merchant name.
+    Standard merchant returned by the MerchantDatabase.
     """
 
-    if pd.isna(description):
-        return "OTHER"
+    name: str
+    category: str
+    frequency: str
+    aliases: List[str]
 
-    text = str(description).upper()
+    @property
+    def expected_interval_days(self) -> int:
+        """
+        Convert billing frequency into expected billing interval.
+        """
 
-    for alias, merchant in merchant_lookup.items():
+        mapping = {
+            "DAILY": 1,
+            "WEEKLY": 7,
+            "MONTHLY": 30,
+            "QUARTERLY": 90,
+            "YEARLY": 365,
+        }
 
-        if alias in text:
-            return merchant
-
-    return "OTHER"
+        return mapping.get(self.frequency.upper(), 30)
 
 
-def merchant_category(merchant):
+# ==========================================================
+# Merchant Database
+# ==========================================================
+
+class MerchantDatabase:
     """
-    Return merchant category.
-    """
+    Merchant lookup engine.
 
-    merchant = str(merchant).upper()
-
-    return category_lookup.get(merchant, "Unknown")
-
-
-def merchant_frequency(merchant):
-    """
-    Return expected billing frequency.
-    """
-
-    merchant = str(merchant).upper()
-
-    return frequency_lookup.get(merchant, "Unknown")
-
-
-def merchant_exists(merchant):
-    """
-    Check whether merchant exists.
+    Loads merchant_database.csv and provides merchant matching.
     """
 
-    merchant = str(merchant).upper()
-
-    return merchant in category_lookup
-
-
-def merchant_count():
-    """
-    Return number of merchants loaded.
-    """
-
-    return len(category_lookup)
-
-
-def all_merchants():
-    """
-    Return list of all merchants.
-    """
-
-    return sorted(category_lookup.keys())
-
-
-# -------------------------------------------------------
-# Self Test
-# -------------------------------------------------------
-
-if __name__ == "__main__":
-
-    print("=" * 50)
-    print("Merchant Intelligence Test")
-    print("=" * 50)
-
-    print(f"Merchants loaded : {merchant_count()}")
-
-    samples = [
-        "NETFLIX.COM",
-        "SPOTIFY USA",
-        "APPLE.COM/BILL",
-        "GOOGLE*YOUTUBE",
-        "AMZN PRIME",
-        "OPENAI",
-        "CANVA",
-        "UNKNOWN STORE"
+    REQUIRED_COLUMNS = [
+        "Merchant",
+        "Category",
+        "Frequency",
+        "Aliases",
     ]
 
-    print()
+    def __init__(self, csv_path: Optional[str] = None):
 
-    for sample in samples:
+        if csv_path is None:
 
-        merchant = normalize(sample)
+            project_root = Path(__file__).resolve().parent.parent
 
-        print(f"Transaction : {sample}")
-        print(f"Merchant    : {merchant}")
-        print(f"Category    : {merchant_category(merchant)}")
-        print(f"Frequency   : {merchant_frequency(merchant)}")
-        print("-" * 50)
+            csv_path = (
+                project_root
+                / "data"
+                / "merchant_database.csv"
+            )
+
+        self.csv_path = Path(csv_path)
+
+        self._merchant_index: Dict[str, Merchant] = {}
+        self._alias_index: Dict[str, Merchant] = {}
+
+        self._loaded = False
+
+        self.load()
+
+    # ------------------------------------------------------
+
+    def load(self) -> None:
+        """
+        Load merchant database into memory.
+        """
+
+        if not self.csv_path.exists():
+            raise FileNotFoundError(
+                f"Merchant database not found: {self.csv_path}"
+            )
+
+        df = pd.read_csv(self.csv_path)
+
+        missing = [
+            column
+            for column in self.REQUIRED_COLUMNS
+            if column not in df.columns
+        ]
+
+        if missing:
+            raise ValueError(
+                f"Missing required columns: {missing}"
+            )
+
+        self._merchant_index.clear()
+        self._alias_index.clear()
+
+        for _, row in df.iterrows():
+
+            merchant = Merchant(
+                name=str(row["Merchant"]).strip(),
+                category=str(row["Category"]).strip(),
+                frequency=str(row["Frequency"]).strip(),
+                aliases=self._split_aliases(
+                    row["Aliases"]
+                ),
+            )
+
+            self._merchant_index[
+                merchant.name.upper()
+            ] = merchant
+
+            for alias in merchant.aliases:
+                self._alias_index[
+                    alias.upper()
+                ] = merchant
+
+        self._loaded = True
+
+        logger.info(
+            "Loaded %s merchants.",
+            len(self._merchant_index),
+        )
+
+    # ------------------------------------------------------
+
+    @staticmethod
+    def _split_aliases(value) -> List[str]:
+        """
+        Convert aliases into a list.
+
+        Supports both comma and semicolon separators.
+        """
+
+        if pd.isna(value):
+            return []
+
+        text = str(value)
+
+        text = text.replace(";", ",")
+
+        aliases = []
+
+        for alias in text.split(","):
+
+            alias = alias.strip()
+
+            if alias:
+                aliases.append(alias)
+
+        return aliases
+
+    # ------------------------------------------------------
+
+    @staticmethod
+    def normalize(text: str) -> str:
+        """
+        Normalize a transaction description.
+
+        Example:
+
+            NETFLIX.COM AMSTERDAM
+                ->
+            NETFLIX COM AMSTERDAM
+        """
+
+        if not text:
+            return ""
+
+        text = str(text).upper()
+
+        text = re.sub(
+            r"[^A-Z0-9]",
+            " ",
+            text,
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+
+    # ------------------------------------------------------
+
+    def find(self, description: str) -> Merchant:
+        """
+        Find the best merchant match.
+
+        Matching order:
+
+        1. Exact merchant
+        2. Exact alias
+        3. Alias contained in transaction
+        4. Merchant contained in transaction
+        5. OTHER
+        """
+
+        normalized = self.normalize(description)
+
+        if not normalized:
+            return self._unknown_merchant()
+
+        #
+        # Exact merchant
+        #
+
+        merchant = self._merchant_index.get(normalized)
+
+        if merchant:
+            return merchant
+
+        #
+        # Exact alias
+        #
+
+        merchant = self._alias_index.get(normalized)
+
+        if merchant:
+            return merchant
+
+        #
+        # Alias contained in transaction
+        #
+
+        for alias, merchant in self._alias_index.items():
+
+            if alias in normalized:
+                return merchant
+
+        #
+        # Merchant contained in transaction
+        #
+
+        for merchant_name, merchant in self._merchant_index.items():
+
+            if merchant_name in normalized:
+                return merchant
+
+        return self._unknown_merchant()
+
+    # ------------------------------------------------------
+
+    @staticmethod
+    def _unknown_merchant() -> Merchant:
+        """
+        Return an unknown merchant.
+        """
+
+        return Merchant(
+            name="OTHER",
+            category="Unknown",
+            frequency="Unknown",
+            aliases=[],
+        )
