@@ -1,113 +1,121 @@
-
 """
-predictor.py
+Renewal Predictor v2
+--------------------
 
-Predicts the next subscription renewal date.
+Predicts the next subscription renewal date
+using historical recurring payment patterns.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
+
 import pandas as pd
-
-from core.constants import (
-    PREDICTION_COLUMNS,
-    MONTHLY,
-    WEEKLY,
-    BIWEEKLY,
-    QUARTERLY,
-    YEARLY,
-)
-from core.utils import empty_dataframe
-
-
-FREQUENCY_DAYS = {
-    MONTHLY: 30,
-    WEEKLY: 7,
-    BIWEEKLY: 14,
-    QUARTERLY: 91,
-    YEARLY: 365,
-}
 
 
 class RenewalPredictor:
-    """Predict future subscription renewals."""
 
-    def predict(self, subscriptions: pd.DataFrame) -> pd.DataFrame:
+    def __init__(self):
+        pass
 
-        if subscriptions.empty:
-            return empty_dataframe(PREDICTION_COLUMNS)
+    # ---------------------------------------------------------
 
-        today = pd.Timestamp.today().normalize()
-        predictions = []
+    def predict(self, classified_df: pd.DataFrame) -> pd.DataFrame:
 
-        for _, row in subscriptions.iterrows():
+        if classified_df.empty:
+            return pd.DataFrame()
 
-            frequency = row.get("Frequency", "Unknown")
-            interval = FREQUENCY_DAYS.get(
-                frequency,
-                row.get("Average Interval", 30) or 30,
-            )
+        work = classified_df.copy()
 
-            last_charge = pd.to_datetime(row["Last Charge"])
-
-            renewal = last_charge + timedelta(days=int(interval))
-
-            predictions.append({
-                "Account ID": row["Account ID"],
-                "Customer": row["Customer"],
-                "Merchant": row["Merchant"],
-                "Category": row["Category"],
-                "Predicted Renewal": renewal,
-                "Expected Amount": row["Average Amount"],
-                "Confidence": row["Confidence"],
-                "Days Remaining": (renewal - today).days,
-            })
-
-        return (
-            pd.DataFrame(predictions)
-            .sort_values("Predicted Renewal")
-            .reset_index(drop=True)
+        work["Transaction Date"] = pd.to_datetime(
+            work["Transaction Date"],
+            errors="coerce",
         )
 
+        predictions = []
 
-def predict_renewals(subscriptions: pd.DataFrame) -> pd.DataFrame:
-    """Convenience wrapper."""
-    return RenewalPredictor().predict(subscriptions)
+        grouped = work.groupby(
+            ["Account ID", "Normalized Merchant"]
+        )
 
+        for (account, merchant), group in grouped:
 
-def upcoming_renewals(
-    predictions: pd.DataFrame,
-    days: int = 7,
-) -> pd.DataFrame:
-    """Return renewals due within the next N days."""
+            subscriptions = group[
+                group["Subscription Status"] != "Not Subscription"
+            ]
 
-    if predictions.empty:
-        return predictions
+            if subscriptions.empty:
+                continue
 
-    return predictions[
-        (predictions["Days Remaining"] >= 0)
-        & (predictions["Days Remaining"] <= days)
-    ].copy()
+            subscriptions = subscriptions.sort_values(
+                "Transaction Date"
+            )
 
+            last_txn = subscriptions.iloc[-1]
 
-def prediction_summary(predictions: pd.DataFrame) -> dict:
-    """Summary metrics for dashboard."""
+            if len(subscriptions) >= 2:
 
-    if predictions.empty:
-        return {
-            "renewals": 0,
-            "due_this_week": 0,
-            "expected_spend": 0,
-        }
+                intervals = (
+                    subscriptions["Transaction Date"]
+                    .diff()
+                    .dt.days
+                    .dropna()
+                )
 
-    due = upcoming_renewals(predictions, 7)
+                average_interval = int(round(intervals.mean()))
 
-    return {
-        "renewals": len(predictions),
-        "due_this_week": len(due),
-        "expected_spend": round(
-            predictions["Expected Amount"].sum(),
-            2,
-        ),
-    }
+            else:
+
+                frequency = last_txn["Billing Frequency"]
+
+                defaults = {
+                    "Weekly": 7,
+                    "Biweekly": 14,
+                    "Monthly": 30,
+                    "Quarterly": 90,
+                    "Yearly": 365,
+                }
+
+                average_interval = defaults.get(
+                    frequency,
+                    30,
+                )
+
+            renewal_date = (
+                last_txn["Transaction Date"]
+                + timedelta(days=average_interval)
+            )
+
+            days_remaining = (
+                renewal_date.normalize()
+                - pd.Timestamp.today().normalize()
+            ).days
+
+            if days_remaining < 0:
+                status = "Overdue"
+
+            elif days_remaining <= 3:
+                status = "Due Soon"
+
+            elif days_remaining <= 7:
+                status = "Upcoming"
+
+            else:
+                status = "Scheduled"
+
+            predictions.append(
+                {
+                    "Account ID": account,
+                    "Merchant": merchant,
+                    "Last Payment": last_txn["Transaction Date"],
+                    "Predicted Renewal": renewal_date,
+                    "Average Interval": average_interval,
+                    "Days Remaining": days_remaining,
+                    "Renewal Status": status,
+                    "Subscription Confidence": last_txn[
+                        "Subscription Confidence"
+                    ],
+                }
+            )
+
+        return pd.DataFrame(predictions)
