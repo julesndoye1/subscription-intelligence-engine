@@ -1,86 +1,159 @@
 """
-classifier.py
+Subscription Classifier v2
+--------------------------
 
-Merchant classification engine for the Subscription Intelligence Engine.
+Combines merchant normalization,
+merchant knowledge,
+and recurring payment analysis
+to classify subscriptions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List
+import pandas as pd
 
-from core.merchant import MerchantDatabase
-from core.utils import clean_transaction_description
-from core.constants import KNOWN_SUBSCRIPTION_KEYWORDS
-
-
-class SubscriptionType(str, Enum):
-    CONFIRMED = "Confirmed"
-    LIKELY = "Likely"
-    UNKNOWN = "Unknown"
-
-
-@dataclass
-class ClassificationResult:
-    merchant: str
-    category: str
-    frequency: str
-    subscription_type: SubscriptionType
-    confidence: int
-    matched_alias: str = ""
-    reasons: List[str] = field(default_factory=list)
+from core.normalizer import MerchantNormalizer
+from core.merchant_db import MerchantDatabase
+from core.recurring_engine import RecurringPatternEngine
 
 
 class SubscriptionClassifier:
-    """
-    Classifies a transaction into a subscription candidate.
-    """
 
     def __init__(self):
-        self.db = MerchantDatabase()
 
-    def classify(self, description: str) -> ClassificationResult:
-        text = clean_transaction_description(description)
+        self.normalizer = MerchantNormalizer()
 
-        match = self.db.find(text)
+        self.database = MerchantDatabase()
 
-        if match:
-            confidence = 90 if getattr(match, "aliases", None) else 80
-            return ClassificationResult(
-                merchant=match.name,
-                category=match.category,
-                frequency=match.frequency,
-                subscription_type=SubscriptionType.CONFIRMED,
-                confidence=confidence,
-                matched_alias=text,
-                reasons=["Matched merchant database"],
-            )
+        self.engine = RecurringPatternEngine()
 
-        upper = text.upper()
-        for keyword in KNOWN_SUBSCRIPTION_KEYWORDS:
-            if keyword in upper:
-                return ClassificationResult(
-                    merchant=keyword,
-                    category="Other",
-                    frequency="Unknown",
-                    subscription_type=SubscriptionType.LIKELY,
-                    confidence=65,
-                    matched_alias=keyword,
-                    reasons=["Matched subscription keyword"],
-                )
+    # ---------------------------------------------------------
 
-        return ClassificationResult(
-            merchant="UNKNOWN",
-            category="Other",
-            frequency="Unknown",
-            subscription_type=SubscriptionType.UNKNOWN,
-            confidence=0,
-            reasons=["No merchant match"],
+    def classify(self, df: pd.DataFrame):
+
+        if df.empty:
+            return pd.DataFrame()
+
+        work = df.copy()
+
+        # -----------------------------------------------
+        # Normalize merchant names
+        # -----------------------------------------------
+
+        work["Normalized Merchant"] = work[
+            "Transaction For"
+        ].fillna("").apply(
+            self.normalizer.normalize
         )
 
-    def classify_transaction(self, transaction: dict) -> ClassificationResult:
-        return self.classify(transaction.get("Transaction For", ""))
+        # -----------------------------------------------
+        # Merchant category
+        # -----------------------------------------------
 
+        work["Merchant Category"] = work[
+            "Normalized Merchant"
+        ].apply(
+            self.database.category
+        )
 
-default_classifier = SubscriptionClassifier()
+        # -----------------------------------------------
+        # Frequency
+        # -----------------------------------------------
+
+        work["Expected Frequency"] = work[
+            "Normalized Merchant"
+        ].apply(
+            self.database.frequency
+        )
+
+        # -----------------------------------------------
+        # Risk
+        # -----------------------------------------------
+
+        work["Merchant Risk"] = work[
+            "Normalized Merchant"
+        ].apply(
+            self.database.risk
+        )
+
+        # -----------------------------------------------
+        # Recurring analysis
+        # -----------------------------------------------
+
+        recurring = self.engine.detect(work)
+
+        recurring_lookup = {}
+
+        if not recurring.empty:
+
+            for _, row in recurring.iterrows():
+
+                recurring_lookup[
+                    (
+                        str(row["account_id"]),
+                        row["merchant"],
+                    )
+                ] = row
+
+        # -----------------------------------------------
+        # Classification
+        # -----------------------------------------------
+
+        labels = []
+
+        confidence_scores = []
+
+        next_frequency = []
+
+        for _, row in work.iterrows():
+
+            key = (
+                str(row["Account ID"]),
+                row["Normalized Merchant"],
+            )
+
+            recurring_info = recurring_lookup.get(key)
+
+            if recurring_info is None:
+
+                labels.append("Not Subscription")
+
+                confidence_scores.append(0)
+
+                next_frequency.append("Unknown")
+
+                continue
+
+            confidence = recurring_info["confidence"]
+
+            if confidence >= 90:
+
+                label = "Confirmed Subscription"
+
+            elif confidence >= 75:
+
+                label = "Likely Subscription"
+
+            elif confidence >= 50:
+
+                label = "Possible Subscription"
+
+            else:
+
+                label = "Not Subscription"
+
+            labels.append(label)
+
+            confidence_scores.append(confidence)
+
+            next_frequency.append(
+                row["Expected Frequency"]
+            )
+
+        work["Subscription Status"] = labels
+
+        work["Subscription Confidence"] = confidence_scores
+
+        work["Billing Frequency"] = next_frequency
+
+        return work
