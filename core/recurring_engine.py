@@ -1,116 +1,106 @@
 """
-core/recurring_engine.py
-Phase 3 - Recurring Pattern Engine
+Recurring Pattern Engine
+------------------------
+
+Detects recurring payment patterns from transaction history.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import List
+
 import pandas as pd
 
 
 @dataclass
 class RecurringSubscription:
+
     account_id: str
     merchant: str
     occurrences: int
     average_amount: float
     average_interval_days: float
-    first_date: pd.Timestamp
-    last_date: pd.Timestamp
     confidence: float
 
 
 class RecurringPatternEngine:
+
     def __init__(
         self,
-        merchant_column="Normalized Merchant",
-        account_column="Account ID",
-        amount_column="Amount",
-        date_column="Transaction Date",
-        min_occurrences=2,
-        amount_tolerance=0.15,
+        interval_tolerance: int = 5,
+        amount_tolerance: float = 0.15,
+        minimum_occurrences: int = 2,
     ):
-        self.merchant_column = merchant_column
-        self.account_column = account_column
-        self.amount_column = amount_column
-        self.date_column = date_column
-        self.min_occurrences = min_occurrences
+        self.interval_tolerance = interval_tolerance
         self.amount_tolerance = amount_tolerance
+        self.minimum_occurrences = minimum_occurrences
+
+    # ---------------------------------------------------------
 
     def detect(self, df: pd.DataFrame) -> pd.DataFrame:
-        required = [
-            self.account_column,
-            self.merchant_column,
-            self.amount_column,
-            self.date_column,
-        ]
-        for c in required:
-            if c not in df.columns:
-                raise KeyError(f"Missing required column: {c}")
+
+        if df.empty:
+            return pd.DataFrame()
 
         work = df.copy()
-        work[self.date_column] = pd.to_datetime(work[self.date_column], errors="coerce")
 
-        records = []
+        work["Transaction Date"] = pd.to_datetime(
+            work["Transaction Date"],
+            errors="coerce",
+        )
 
-        grouped = work.groupby([self.account_column, self.merchant_column])
+        work = work.sort_values("Transaction Date")
 
-        for (account, merchant), g in grouped:
-            g = g.sort_values(self.date_column)
+        subscriptions: List[RecurringSubscription] = []
 
-            if len(g) < self.min_occurrences:
+        grouped = work.groupby(
+            ["Account ID", "Normalized Merchant"]
+        )
+
+        for (account, merchant), group in grouped:
+
+            if len(group) < self.minimum_occurrences:
                 continue
 
-            dates = g[self.date_column].dropna()
+            group = group.sort_values("Transaction Date")
 
-            if len(dates) < self.min_occurrences:
-                continue
+            amounts = group["Amount"].astype(float)
+
+            dates = group["Transaction Date"]
 
             intervals = dates.diff().dt.days.dropna()
 
-            avg_interval = float(intervals.mean()) if len(intervals) else 0.0
+            if intervals.empty:
+                continue
 
-            amounts = pd.to_numeric(
-                g[self.amount_column], errors="coerce"
-            ).dropna()
+            avg_interval = intervals.mean()
 
-            avg_amount = float(amounts.mean()) if len(amounts) else 0.0
+            avg_amount = amounts.mean()
 
-            confidence = self._confidence(
-                len(g),
-                avg_interval,
-                amounts.std() if len(amounts) > 1 else 0.0,
-                avg_amount,
-            )
+            amount_cv = amounts.std(ddof=0) / max(avg_amount, 1)
 
-            records.append(
+            interval_cv = intervals.std(ddof=0) / max(avg_interval, 1)
+
+            confidence = 100.0
+
+            confidence -= amount_cv * 50
+
+            confidence -= interval_cv * 50
+
+            confidence = max(0, min(100, confidence))
+
+            subscriptions.append(
+
                 RecurringSubscription(
                     account_id=str(account),
-                    merchant=str(merchant),
-                    occurrences=len(g),
+                    merchant=merchant,
+                    occurrences=len(group),
                     average_amount=round(avg_amount, 2),
                     average_interval_days=round(avg_interval, 1),
-                    first_date=dates.min(),
-                    last_date=dates.max(),
                     confidence=round(confidence, 1),
-                ).__dict__
+                )
+
             )
 
-        return pd.DataFrame(records)
-
-    def _confidence(self, occurrences, avg_interval, std_amount, avg_amount):
-        score = 40.0
-
-        score += min(occurrences * 10, 30)
-
-        if 27 <= avg_interval <= 33:
-            score += 20
-        elif 6 <= avg_interval <= 8:
-            score += 15
-
-        if avg_amount > 0:
-            variation = std_amount / avg_amount if avg_amount else 0
-            if variation <= self.amount_tolerance:
-                score += 10
-
-        return min(score, 100.0)
+        return pd.DataFrame([s.__dict__ for s in subscriptions])
