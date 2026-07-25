@@ -59,6 +59,13 @@ class Merchant:
         return mapping.get(self.frequency.upper(), 30)
 
 
+
+@dataclass(frozen=True)
+class MatchResult:
+    merchant: Merchant
+    matched_alias: str
+    score: int
+
 # ==========================================================
 # Merchant Database
 # ==========================================================
@@ -185,54 +192,37 @@ class MerchantDatabase:
 
     @staticmethod
     def normalize(text: str) -> str:
-        """
-        Normalize a transaction description.
-
-        Example:
-
-            NETFLIX.COM AMSTERDAM
-                ->
-            NETFLIX COM AMSTERDAM
-        """
-
+        """Normalize Visa transaction descriptions."""
         if not text:
             return ""
-
         text = str(text).upper()
-
-        text = re.sub(
-            r"[^A-Z0-9]",
-            " ",
-            text,
-        )
-
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        )
-
+        for ch in ("*", "/", "\\\\", "-", "_", "."):
+            text = text.replace(ch, " ")
+        text = re.sub(r"[^A-Z0-9 ]", " ", text)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
     # ------------------------------------------------------
 
     def find(self, description: str) -> Merchant:
-        """
-        Find the best merchant match.
-
-        Matching order:
-
-        1. Exact merchant
-        2. Exact alias
-        3. Alias contained in transaction
-        4. Merchant contained in transaction
-        5. OTHER
-        """
-
+        """Return the best merchant match using longest-alias scoring."""
         normalized = self.normalize(description)
-
         if not normalized:
             return self._unknown_merchant()
+        best=None
+        best_score=-1
+        for alias, merchant in self._alias_index.items():
+            a=self.normalize(alias)
+            score = 1000 + len(a) if a == normalized else (len(a) if a in normalized else -1)
+            if score > best_score:
+                best_score = score
+                best = merchant
+        if best:
+            return best
+        for name, merchant in self._merchant_index.items():
+            if self.normalize(name) in normalized:
+                return merchant
+        return self._unknown_merchant()
 
         #
         # Exact merchant

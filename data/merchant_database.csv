@@ -1,5 +1,22 @@
-Merchant,Category,Frequency,Aliases
-NETFLIX,Streaming,Monthly,"NETFLIX;NETFLIX.COM;NETFLIX.COM AMSTERDAM;NETFLIX.COM LOS GATOS;NETFLIX.COM 4087249160"
-SPOTIFY,Music,Monthly,"SPOTIFY;SPOTIFY USA;SPOTIFY AB;SPOTIFY STOCKHOLM"
-APPLE,Digital Services,Monthly,"APPLE;APPLE.COM/BILL;APPLE SERVICES;ITUNES;APPLE.COM IE"
-GOOGLE,Digital Services,Monthly,"GOOGLE;GOOGLE PLAY;GOOGLE*YOUTUBE;GOOGLE SERVICES;GOOGLE ONE"
+Merchant,Category,Frequency,Country,Risk
+Netflix,Streaming,Monthly,Global,Low
+Spotify,Music,Monthly,Global,Low
+Apple,Digital Services,Monthly,Global,Low
+Apple iCloud,Cloud Storage,Monthly,Global,Low
+Google,Digital Services,Monthly,Global,Low
+Google One,Cloud Storage,Monthly,Global,Low
+YouTube Premium,Streaming,Monthly,Global,Low
+Amazon Prime,Shopping,Monthly,Global,Low
+Prime Video,Streaming,Monthly,Global,Low
+Disney Plus,Streaming,Monthly,Global,Low
+OpenAI ChatGPT,AI,Monthly,Global,Low
+Claude AI,AI,Monthly,Global,Low
+Microsoft 365,Software,Monthly,Global,Low
+Adobe,Software,Monthly,Global,Low
+Canva,Software,Monthly,Global,Low
+Dropbox,Cloud Storage,Monthly,Global,Low
+LinkedIn Premium,Professional,Monthly,Global,Low
+Deezer,Music,Monthly,Africa,Low
+NordVPN,VPN,Monthly,Global,Medium
+ExpressVPN,VPN,Monthly,Global,Medium
+Proton VPN,VPN,Monthly,Global,Medium

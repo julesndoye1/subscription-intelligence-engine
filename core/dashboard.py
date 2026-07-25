@@ -1,177 +1,63 @@
-"""
-=========================================================
-Subscription Intelligence Agent
-Executive Dashboard
-=========================================================
 
-Displays subscription analytics using Streamlit.
+"""dashboard.py - Streamlit dashboard for Subscription Intelligence Engine."""
 
-Author:
-Subscription Intelligence Team
-
-Version:
-1.0
-"""
+from __future__ import annotations
 
 import streamlit as st
+import pandas as pd
+
+from core.detector import subscription_summary
+from core.predictor import prediction_summary, upcoming_renewals
+from core.utils import currency
 
 
-# ---------------------------------------------------------
-# Dashboard
-# ---------------------------------------------------------
+class Dashboard:
 
-def show_dashboard(renewals):
-    """
-    Display the executive dashboard.
+    def render(self, subscriptions: pd.DataFrame, predictions: pd.DataFrame) -> None:
+        st.set_page_config(page_title="Subscription Intelligence Engine", layout="wide")
+        st.title("Subscription Intelligence Engine")
 
-    Parameters
-    ----------
-    renewals : pandas.DataFrame
-    """
+        sub = subscription_summary(subscriptions)
+        pred = prediction_summary(predictions)
 
-    st.title("📊 Subscription Intelligence Dashboard")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Subscriptions", sub["subscriptions"])
+        c2.metric("Customers", sub["customers"])
+        c3.metric("Monthly Spend", currency(sub["monthly_spend"]))
+        c4.metric("Renewals (7 days)", pred["due_this_week"])
 
-    if renewals.empty:
-        st.info("No subscriptions detected.")
-        return
+        st.divider()
 
-    # -----------------------------------------------------
-    # KPI Cards
-    # -----------------------------------------------------
+        if not subscriptions.empty:
+            st.subheader("Detected Subscriptions")
+            merchant = st.selectbox(
+                "Merchant Filter",
+                ["All"] + sorted(subscriptions["Merchant"].unique().tolist()),
+            )
+            view = subscriptions if merchant == "All" else subscriptions[subscriptions["Merchant"] == merchant]
+            st.dataframe(view, use_container_width=True)
 
-    total_subscriptions = len(renewals)
+            st.subheader("Subscriptions by Category")
+            cat = view.groupby("Category").size().sort_values(ascending=False)
+            st.bar_chart(cat)
 
-    total_customers = renewals["Account ID"].nunique()
+            st.subheader("Confidence Distribution")
+            st.bar_chart(view.set_index("Merchant")["Confidence"])
 
-    monthly_spend = renewals["Estimated Monthly Spend"].sum()
+        if not predictions.empty:
+            st.divider()
+            st.subheader("Upcoming Renewals")
+            due = upcoming_renewals(predictions, 30)
+            st.dataframe(due, use_container_width=True)
 
-    annual_spend = renewals["Estimated Annual Spend"].sum()
+            csv = due.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download Renewals CSV",
+                data=csv,
+                file_name="renewal_predictions.csv",
+                mime="text/csv",
+            )
 
-    col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric(
-        "Subscriptions",
-        total_subscriptions,
-    )
-
-    col2.metric(
-        "Customers",
-        total_customers,
-    )
-
-    col3.metric(
-        "Monthly Spend",
-        f"{monthly_spend:,.2f}",
-    )
-
-    col4.metric(
-        "Annual Spend",
-        f"{annual_spend:,.2f}",
-    )
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # Renewal Status
-    # -----------------------------------------------------
-
-    st.subheader("Renewal Status")
-
-    renewal_counts = (
-        renewals["Renewal Status"]
-        .value_counts()
-    )
-
-    st.bar_chart(renewal_counts)
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # Spend by Merchant
-    # -----------------------------------------------------
-
-    st.subheader("Monthly Spend by Merchant")
-
-    merchant_spend = (
-        renewals
-        .groupby("Merchant")["Estimated Monthly Spend"]
-        .sum()
-        .sort_values(ascending=False)
-    )
-
-    st.bar_chart(merchant_spend)
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # Spend by Category
-    # -----------------------------------------------------
-
-    st.subheader("Monthly Spend by Category")
-
-    category_spend = (
-        renewals
-        .groupby("Category")["Estimated Monthly Spend"]
-        .sum()
-        .sort_values(ascending=False)
-    )
-
-    st.bar_chart(category_spend)
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # Upcoming Renewals
-    # -----------------------------------------------------
-
-    st.subheader("Upcoming Renewals")
-
-    upcoming = renewals[
-        renewals["Days Remaining"] <= 7
-    ].copy()
-
-    upcoming = upcoming[
-        upcoming["Days Remaining"] >= 0
-    ]
-
-    if upcoming.empty:
-
-        st.success(
-            "No renewals due within the next 7 days."
-        )
-
-    else:
-
-        st.dataframe(
-            upcoming[
-                [
-                    "Customer",
-                    "Merchant",
-                    "Next Renewal",
-                    "Days Remaining",
-                    "Average Amount",
-                ]
-            ],
-            use_container_width=True,
-        )
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # All Subscriptions
-    # -----------------------------------------------------
-
-    st.subheader("Detected Subscriptions")
-
-    st.dataframe(
-        renewals,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        label="📥 Download Results (CSV)",
-        data=renewals.to_csv(index=False),
-        file_name="subscription_results.csv",
-        mime="text/csv",
-    )
+def show_dashboard(subscriptions: pd.DataFrame, predictions: pd.DataFrame) -> None:
+    Dashboard().render(subscriptions, predictions)
