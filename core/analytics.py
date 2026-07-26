@@ -11,10 +11,36 @@ from __future__ import annotations
 import pandas as pd
 
 
+SUBSCRIPTION_STATUSES = {
+    "Confirmed Subscription",
+    "Likely Subscription",
+    "Possible Subscription",
+}
+
+
 class AnalyticsEngine:
 
     def __init__(self):
         pass
+
+    # ---------------------------------------------------------
+    # Internal helper
+    # ---------------------------------------------------------
+
+    def _subscriptions(self, classified_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Returns only genuine subscription transactions.
+
+        Excluded merchants and ordinary transactions are removed.
+        """
+        if classified_df.empty:
+            return pd.DataFrame()
+
+        return classified_df[
+            classified_df["Subscription Status"].isin(
+                SUBSCRIPTION_STATUSES
+            )
+        ].copy()
 
     # ---------------------------------------------------------
 
@@ -26,10 +52,7 @@ class AnalyticsEngine:
         if classified_df.empty:
             return {}
 
-        subscriptions = classified_df[
-            classified_df["Subscription Status"]
-            != "Not Subscription"
-        ]
+        subscriptions = self._subscriptions(classified_df)
 
         total_transactions = len(classified_df)
 
@@ -77,17 +100,17 @@ class AnalyticsEngine:
         classified_df: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        subscriptions = classified_df[
-            classified_df["Subscription Status"]
-            != "Not Subscription"
-        ]
+        subscriptions = self._subscriptions(classified_df)
 
         if subscriptions.empty:
             return pd.DataFrame()
 
         report = (
+
             subscriptions
+
             .groupby("Normalized Merchant")
+
             .agg(
 
                 Customers=(
@@ -109,13 +132,16 @@ class AnalyticsEngine:
                     "Amount",
                     "mean",
                 ),
-            )
-            .reset_index()
-        )
 
-        report = report.sort_values(
-            "Revenue",
-            ascending=False,
+            )
+
+            .reset_index()
+
+            .sort_values(
+                "Revenue",
+                ascending=False,
+            )
+
         )
 
         return report
@@ -127,10 +153,7 @@ class AnalyticsEngine:
         classified_df: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        subscriptions = classified_df[
-            classified_df["Subscription Status"]
-            != "Not Subscription"
-        ]
+        subscriptions = self._subscriptions(classified_df)
 
         if subscriptions.empty:
             return pd.DataFrame()
@@ -159,6 +182,7 @@ class AnalyticsEngine:
                     "Transaction ID",
                     "count",
                 ),
+
             )
 
             .reset_index()
@@ -183,57 +207,32 @@ class AnalyticsEngine:
         return {
 
             "Scheduled":
-
                 len(
-
                     renewal_df[
-                        renewal_df[
-                            "Renewal Status"
-                        ]
-                        == "Scheduled"
+                        renewal_df["Renewal Status"] == "Scheduled"
                     ]
-
                 ),
 
             "Upcoming":
-
                 len(
-
                     renewal_df[
-                        renewal_df[
-                            "Renewal Status"
-                        ]
-                        == "Upcoming"
+                        renewal_df["Renewal Status"] == "Upcoming"
                     ]
-
                 ),
 
             "Due Soon":
-
                 len(
-
                     renewal_df[
-                        renewal_df[
-                            "Renewal Status"
-                        ]
-                        == "Due Soon"
+                        renewal_df["Renewal Status"] == "Due Soon"
                     ]
-
                 ),
 
             "Overdue":
-
                 len(
-
                     renewal_df[
-                        renewal_df[
-                            "Renewal Status"
-                        ]
-                        == "Overdue"
+                        renewal_df["Renewal Status"] == "Overdue"
                     ]
-
                 ),
-
         }
 
     # ---------------------------------------------------------
@@ -258,27 +257,17 @@ class AnalyticsEngine:
             "NSF Alerts":
 
                 len(
-
                     nsf_df[
-                        nsf_df[
-                            "Alert"
-                        ]
-                        == "Insufficient Funds"
+                        nsf_df["Alert"] == "Insufficient Funds"
                     ]
-
                 ),
 
             "Renewal Missing":
 
                 len(
-
                     nsf_df[
-                        nsf_df[
-                            "Alert"
-                        ]
-                        == "Renewal Missing"
+                        nsf_df["Alert"] == "Renewal Missing"
                     ]
-
                 ),
 
         }
@@ -295,31 +284,26 @@ class AnalyticsEngine:
         return {
 
             "subscriptions":
-
                 self.subscription_summary(
                     classified_df
                 ),
 
             "renewals":
-
                 self.renewal_summary(
                     renewal_df
                 ),
 
             "nsf":
-
                 self.nsf_summary(
                     nsf_df
                 ),
 
             "merchant_table":
-
                 self.merchant_summary(
                     classified_df
                 ),
 
             "category_table":
-
                 self.category_summary(
                     classified_df
                 ),

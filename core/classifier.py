@@ -1,159 +1,153 @@
 """
-Subscription Classifier v2
---------------------------
+core/classifier.py
 
-Combines merchant normalization,
-merchant knowledge,
-and recurring payment analysis
-to classify subscriptions.
+Version 1
+
+Simple subscription classifier.
+
+The whitelist is the ONLY source of truth.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 
-from core.normalizer import MerchantNormalizer
-from core.merchant_db import MerchantDatabase
-from core.recurring_engine import RecurringPatternEngine
+from core.merchant_registry import MerchantRegistry
 
 
 class SubscriptionClassifier:
 
-    def __init__(self):
+    def __init__(self, data_dir: Optional[str] = None):
 
-        self.normalizer = MerchantNormalizer()
+        if data_dir:
+            self.data_dir = Path(data_dir)
+        else:
+            self.data_dir = (
+                Path(__file__).resolve().parent.parent / "data"
+            )
 
-        self.database = MerchantDatabase()
-
-        self.engine = RecurringPatternEngine()
+        self.registry = MerchantRegistry(self.data_dir)
 
     # ---------------------------------------------------------
 
-    def classify(self, df: pd.DataFrame):
+    def classify(
+        self,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
 
         if df.empty:
-            return pd.DataFrame()
+            return df.copy()
 
         work = df.copy()
 
-        # -----------------------------------------------
-        # Normalize merchant names
-        # -----------------------------------------------
+        # -----------------------------------------------------
+        # Ensure required columns exist
+        # -----------------------------------------------------
 
-        work["Normalized Merchant"] = work[
-            "Transaction For"
-        ].fillna("").apply(
-            self.normalizer.normalize
-        )
+        required = [
+            "Transaction For",
+            "Amount",
+        ]
 
-        # -----------------------------------------------
-        # Merchant category
-        # -----------------------------------------------
+        for col in required:
 
-        work["Merchant Category"] = work[
-            "Normalized Merchant"
-        ].apply(
-            self.database.category
-        )
+            if col not in work.columns:
+                raise ValueError(
+                    f"Missing required column: {col}"
+                )
 
-        # -----------------------------------------------
-        # Frequency
-        # -----------------------------------------------
+        # -----------------------------------------------------
+        # Create output columns
+        # -----------------------------------------------------
 
-        work["Expected Frequency"] = work[
-            "Normalized Merchant"
-        ].apply(
-            self.database.frequency
-        )
+        work["Normalized Merchant"] = ""
+        work["Subscription Status"] = "Not Subscription"
+        work["Merchant Category"] = ""
+        work["Billing Frequency"] = ""
+        work["Merchant Country"] = ""
+        work["Merchant Risk"] = ""
 
-        # -----------------------------------------------
-        # Risk
-        # -----------------------------------------------
+        # -----------------------------------------------------
+        # Classify each transaction
+        # -----------------------------------------------------
 
-        work["Merchant Risk"] = work[
-            "Normalized Merchant"
-        ].apply(
-            self.database.risk
-        )
+        for index, row in work.iterrows():
 
-        # -----------------------------------------------
-        # Recurring analysis
-        # -----------------------------------------------
+            merchant_name = row["Transaction For"]
 
-        recurring = self.engine.detect(work)
-
-        recurring_lookup = {}
-
-        if not recurring.empty:
-
-            for _, row in recurring.iterrows():
-
-                recurring_lookup[
-                    (
-                        str(row["account_id"]),
-                        row["merchant"],
-                    )
-                ] = row
-
-        # -----------------------------------------------
-        # Classification
-        # -----------------------------------------------
-
-        labels = []
-
-        confidence_scores = []
-
-        next_frequency = []
-
-        for _, row in work.iterrows():
-
-            key = (
-                str(row["Account ID"]),
-                row["Normalized Merchant"],
+            normalized = self.registry.normalize(
+                merchant_name
             )
 
-            recurring_info = recurring_lookup.get(key)
+            work.at[
+                index,
+                "Normalized Merchant",
+            ] = normalized
 
-            if recurring_info is None:
+            merchant = self.registry.find(
+                normalized
+            )
 
-                labels.append("Not Subscription")
-
-                confidence_scores.append(0)
-
-                next_frequency.append("Unknown")
-
+            if merchant is None:
                 continue
 
-            confidence = recurring_info["confidence"]
+            work.at[
+                index,
+                "Subscription Status",
+            ] = "Confirmed Subscription"
 
-            if confidence >= 90:
+            work.at[
+                index,
+                "Merchant Category",
+            ] = merchant.category
 
-                label = "Confirmed Subscription"
+            work.at[
+                index,
+                "Billing Frequency",
+            ] = merchant.frequency
 
-            elif confidence >= 75:
+            work.at[
+                index,
+                "Merchant Country",
+            ] = merchant.country
 
-                label = "Likely Subscription"
-
-            elif confidence >= 50:
-
-                label = "Possible Subscription"
-
-            else:
-
-                label = "Not Subscription"
-
-            labels.append(label)
-
-            confidence_scores.append(confidence)
-
-            next_frequency.append(
-                row["Expected Frequency"]
-            )
-
-        work["Subscription Status"] = labels
-
-        work["Subscription Confidence"] = confidence_scores
-
-        work["Billing Frequency"] = next_frequency
+            work.at[
+                index,
+                "Merchant Risk",
+            ] = merchant.risk
 
         return work
+
+    # ---------------------------------------------------------
+
+    def summary(
+        self,
+        classified_df: pd.DataFrame,
+    ) -> dict:
+
+        subscriptions = classified_df[
+            classified_df["Subscription Status"]
+            == "Confirmed Subscription"
+        ]
+
+        return {
+
+            "Total Transactions":
+                len(classified_df),
+
+            "Detected Subscriptions":
+                len(subscriptions),
+
+            "Active Customers":
+                subscriptions["Account ID"].nunique()
+                if "Account ID" in subscriptions.columns
+                else 0,
+
+            "Subscription Merchants":
+                subscriptions["Normalized Merchant"].nunique()
+                if "Normalized Merchant" in subscriptions.columns
+                else 0,
+        }

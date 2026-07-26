@@ -1,17 +1,44 @@
-Merchant,Category,Frequency,Country,Risk,ConfidenceBoost,Aliases
-NETFLIX,Streaming,Monthly,Global,Low,60,"NETFLIX.COM,NETFLIX.COM 4085403700,NETFLIX EUROPE"
-SPOTIFY,Music,Monthly,Global,Low,60,"SPOTIFY AB,SPOTIFY STOCKHOLM,SPOTIFY SE"
-APPLE,Digital Services,Monthly,Global,Low,60,"APPLE.COM/BILL,APPLE SERVICES,APPLE.COM IE,APPLE BILL"
-GOOGLE,Digital Services,Monthly,Global,Low,60,"GOOGLE*GOOGLE ONE,GOOGLE ONE,GOOGLE PLAY"
-YOUTUBE PREMIUM,Streaming,Monthly,Global,Low,60,"GOOGLE*YOUTUBE,YOUTUBE"
-OPENAI,AI,Monthly,USA,Low,60,"CHATGPT,CHATGPT PLUS,OPENAI*CHATGPT"
-ANTHROPIC,AI,Monthly,USA,Low,60,"CLAUDE,ANTHROPIC PBC"
-MICROSOFT,Software,Monthly,USA,Low,60,"MICROSOFT 365,MSFT"
-ADOBE,Software,Monthly,USA,Low,60,"ADOBE CREATIVE CLOUD"
-CANVA,Software,Monthly,Australia,Low,60,"CANVA PTY LTD"
-DROPBOX,Cloud Storage,Monthly,USA,Low,60,"DROPBOX INC"
-ICLOUD,Cloud Storage,Monthly,Global,Low,60,"APPLE ICLOUD"
-LINKEDIN PREMIUM,Professional,Monthly,USA,Low,60,"LINKEDIN"
-AMAZON PRIME,Shopping,Monthly,Global,Low,60,"AMAZON PRIME VIDEO"
-DISNEY+,Streaming,Monthly,Global,Low,60,"DISNEY PLUS"
-UBER ONE,Transport,Monthly,Global,Low,60,"UBER PASS"
+Merchant,Category,Frequency,Country,Risk
+ADOBE,Software,Monthly,USA,Low
+AMAZON PRIME,Shopping,Monthly,USA,Low
+ANTHROPIC,AI,Monthly,USA,Low
+APPLE,Digital Services,Monthly,USA,Low
+CANVA,Design,Monthly,Australia,Low
+CHATGPT,AI,Monthly,USA,Low
+CLAUDE,AI,Monthly,USA,Low
+COPILOT,AI,Monthly,USA,Low
+DROPBOX,Cloud Storage,Monthly,USA,Low
+FIGMA,Design,Monthly,USA,Low
+GENSPARK,AI,Monthly,USA,Low
+GITHUB,Developer Tools,Monthly,USA,Low
+GOOGLE,Digital Services,Monthly,USA,Low
+GOOGLE ONE,Cloud Storage,Monthly,USA,Low
+GOOGLE WORKSPACE,Software,Monthly,USA,Low
+ICLOUD,Cloud Storage,Monthly,USA,Low
+MICROSOFT,Software,Monthly,USA,Low
+MICROSOFT 365,Software,Monthly,USA,Low
+NETFLIX,Streaming,Monthly,USA,Low
+NORDVPN,VPN,Monthly,Panama,Low
+NOTION,Productivity,Monthly,USA,Low
+OPENAI,AI,Monthly,USA,Low
+PROTON VPN,VPN,Monthly,Switzerland,Low
+PROTONVPN,VPN,Monthly,Switzerland,Low
+SPOTIFY,Music,Monthly,Sweden,Low
+1PASSWORD,Security,Monthly,Canada,Low
+AUDIBLE,Entertainment,Monthly,USA,Low
+BITWARDEN,Security,Monthly,USA,Low
+DISCORD NITRO,Entertainment,Monthly,USA,Low
+DISNEY PLUS,Streaming,Monthly,USA,Low
+DISNEY+,Streaming,Monthly,USA,Low
+DUOLINGO,Education,Monthly,USA,Low
+EVERNOTE,Productivity,Monthly,USA,Low
+EXPRESSVPN,VPN,Monthly,British Virgin Islands,Low
+GRAMMARLY,Productivity,Monthly,USA,Low
+HULU,Streaming,Monthly,USA,Low
+LINKEDIN PREMIUM,Professional,Monthly,USA,Low
+MIDJOURNEY,AI,Monthly,USA,Low
+PARAMOUNT PLUS,Streaming,Monthly,USA,Low
+PERPLEXITY,AI,Monthly,USA,Low
+PRIVATE INTERNET ACCESS,VPN,Monthly,USA,Low
+SURFSHARK,VPN,Monthly,Netherlands,Low
+YOUTUBE PREMIUM,Streaming,Monthly,USA,Low

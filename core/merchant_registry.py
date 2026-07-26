@@ -1,113 +1,179 @@
+"""
+core/merchant_registry.py
+
+Version 1
+
+Merchant Registry for the Subscription Intelligence Engine.
+
+The whitelist is the ONLY source of truth.
+
+If a merchant is found in subscription_whitelist.csv,
+it is considered a subscription merchant.
+
+All other merchants are treated as non-subscription merchants.
+"""
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
-import pandas as pd
+from typing import Optional
 import re
+
+import pandas as pd
+
+
+# ==========================================================
+# Merchant Model
+# ==========================================================
 
 @dataclass
 class Merchant:
-    name:str
-    category:str="Unknown"
-    frequency:str="Unknown"
-    country:str="Unknown"
-    risk:str="Unknown"
-    confidence_boost:int=0
-    aliases:List[str]=field(default_factory=list)
+
+    name: str
+
+    category: str = "Unknown"
+
+    frequency: str = "Unknown"
+
+    country: str = "Unknown"
+
+    risk: str = "Unknown"
+
+
+# ==========================================================
+# Merchant Registry
+# ==========================================================
 
 class MerchantRegistry:
-    def __init__(self,data_dir:Optional[str]=None):
-        self.data_dir=Path(data_dir) if data_dir else Path(__file__).resolve().parent.parent/"data"
-        self.merchants={}
-        self.alias_map={}
-        self.blacklist=set()
+
+    def __init__(self, data_dir: Optional[str] = None):
+
+        if data_dir:
+            self.data_dir = Path(data_dir)
+        else:
+            self.data_dir = (
+                Path(__file__).resolve().parent.parent / "data"
+            )
+
+        self.merchants = {}
+
         self._load_whitelist()
-        self._load_blacklist()
-        self._load_database()
+
+    # ------------------------------------------------------
 
     @staticmethod
-    def normalize(text:str)->str:
-        text="" if text is None else str(text).upper()
-        text=re.sub(r"\d{6,}"," ",text)
-        text=re.sub(r"[*_/.,\-]"," ",text)
-        text=re.sub(r"\s+"," ",text).strip()
-        words=[w for w in text.split() if w not in {"LTD","LIMITED","INC","LLC","PTY","SERVICES","SERVICE"}]
-        return " ".join(words)
+    def normalize(text: str) -> str:
+        """
+        Normalize merchant names.
+        """
+
+        if text is None:
+            return ""
+
+        text = str(text).upper()
+
+        # Remove long numbers
+        text = re.sub(r"\d{6,}", " ", text)
+
+        # Replace separators
+        text = re.sub(r"[*_/.,\\-]", " ", text)
+
+        # Remove duplicate spaces
+        text = re.sub(r"\s+", " ", text)
+
+        return text.strip()
+
+    # ------------------------------------------------------
 
     def _load_whitelist(self):
-        f=self.data_dir/"subscription_whitelist.csv"
-        if not f.exists(): return
-        for _,r in pd.read_csv(f).fillna("").iterrows():
-            m=Merchant(
-                name=r["Merchant"],
-                category=r.get("Category","Unknown"),
-                frequency=r.get("Frequency","Unknown"),
-                country=r.get("Country","Unknown"),
-                risk=r.get("Risk","Unknown"),
-                confidence_boost=int(r.get("ConfidenceBoost",0))
+
+        file = self.data_dir / "subscription_whitelist.csv"
+
+        if not file.exists():
+
+            raise FileNotFoundError(
+                f"Cannot find {file}"
             )
-            aliases=[a.strip() for a in str(r.get("Aliases","")).split(",") if a.strip()]
-            m.aliases=aliases
-            k=self.normalize(m.name)
-            self.merchants[k]=m
-            self.alias_map[k]=k
-            for a in aliases:
-                self.alias_map[self.normalize(a)]=k
 
-    def _load_blacklist(self):
-        f=self.data_dir/"subscription_blacklist.csv"
-        if not f.exists(): return
-        for _,r in pd.read_csv(f).iterrows():
-            self.blacklist.add(self.normalize(r["Merchant"]))
+        df = pd.read_csv(file).fillna("")
 
-    def _load_database(self):
-        f=self.data_dir/"merchant_database.csv"
-        if not f.exists(): return
-        for _,r in pd.read_csv(f).fillna("").iterrows():
-            k=self.normalize(r["Merchant"])
-            if k in self.merchants: continue
-            self.merchants[k]=Merchant(
-                name=r["Merchant"],
-                category=r.get("Category","Unknown"),
-                frequency=r.get("Frequency","Unknown")
+        for _, row in df.iterrows():
+
+            merchant = Merchant(
+
+                name=row["Merchant"],
+
+                category=row.get(
+                    "Category",
+                    "Unknown",
+                ),
+
+                frequency=row.get(
+                    "Frequency",
+                    "Unknown",
+                ),
+
+                country=row.get(
+                    "Country",
+                    "Unknown",
+                ),
+
+                risk=row.get(
+                    "Risk",
+                    "Unknown",
+                ),
+
             )
-            self.alias_map[k]=k
 
-    def is_blacklisted(self,merchant:str)->bool:
-        n=self.normalize(merchant)
-        return any(b and b in n for b in self.blacklist)
+            key = self.normalize(
+                merchant.name
+            )
 
-    def find(self,merchant:str)->Merchant:
-        n=self.normalize(merchant)
-        if n in self.alias_map:
-            return self.merchants[self.alias_map[n]]
-        best=""
-        for a,c in self.alias_map.items():
-            if a in n and len(a)>len(best):
-                best=a
-        return self.merchants[self.alias_map[best]] if best else Merchant(name=merchant)
+            self.merchants[key] = merchant
 
-    def classify(self,merchant:str)->dict:
-        if self.is_blacklisted(merchant):
-            return {"merchant":merchant,"subscription":False,"confidence":0,"reason":"Merchant appears in blacklist."}
-        m=self.find(merchant)
-        conf=m.confidence_boost
-        reasons=[]
-        if conf:
-            reasons.append("Known subscription merchant.")
-        if m.frequency.lower()=="monthly":
-            conf+=20
-            reasons.append("Typical monthly billing.")
-        conf=min(conf,100)
-        return {
-            "merchant":merchant,
-            "canonical":m.name,
-            "subscription":conf>=60,
-            "confidence":conf,
-            "category":m.category,
-            "frequency":m.frequency,
-            "country":m.country,
-            "risk":m.risk,
-            "reason":" ".join(reasons) if reasons else "Unknown merchant."
-        }
+        print(
+            f"Loaded {len(self.merchants)} subscription merchants."
+        )
+
+    # ------------------------------------------------------
+
+    def find(
+        self,
+        merchant_name: str,
+    ) -> Optional[Merchant]:
+        """
+        Returns the merchant if it exists
+        in the whitelist.
+
+        Otherwise returns None.
+        """
+
+        normalized = self.normalize(
+            merchant_name
+        )
+
+        # Exact match
+
+        if normalized in self.merchants:
+            return self.merchants[normalized]
+
+        # Partial match
+
+        for key, merchant in self.merchants.items():
+
+            if key in normalized:
+                return merchant
+
+        return None
+
+    # ------------------------------------------------------
+
+    def is_subscription(
+        self,
+        merchant_name: str,
+    ) -> bool:
+
+        return self.find(
+            merchant_name
+        ) is not None
