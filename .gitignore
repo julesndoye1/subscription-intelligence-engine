@@ -22,4 +22,4 @@ build/
 dist/
 
 # Logs
-*.log
+*.log.venv/

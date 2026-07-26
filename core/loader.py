@@ -11,9 +11,10 @@ Responsibilities
 3. Standardize column names
 4. Parse dates
 5. Convert numeric fields
-6. Remove duplicate transactions
-7. Clean transaction descriptions
-8. Return a clean DataFrame
+6. Preserve Phone and Account ID as text
+7. Remove duplicate transactions
+8. Clean transaction descriptions
+9. Return a clean DataFrame
 
 This module deliberately DOES NOT perform:
 
@@ -45,17 +46,9 @@ from core.utils import (
 class TransactionLoader:
     """
     Reads and prepares transaction files.
-
-    Example
-    -------
-
-    loader = TransactionLoader()
-
-    df = loader.load("transactions.xlsx")
     """
 
     def __init__(self):
-
         pass
 
     # ------------------------------------------------------------------
@@ -65,20 +58,11 @@ class TransactionLoader:
     def load(self, file_path: str | Path) -> pd.DataFrame:
         """
         Load an Excel transaction report.
-
-        Parameters
-        ----------
-        file_path
-
-            Excel file
-
-        Returns
-        -------
-        pandas.DataFrame
         """
 
         logger.info("Loading transaction file...")
 
+        # Read everything exactly as stored in Excel
         df = pd.read_excel(file_path)
 
         df = self.prepare(df)
@@ -93,10 +77,6 @@ class TransactionLoader:
     def prepare(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """
         Clean and validate an existing dataframe.
-
-        This method is useful for unit tests or
-        Streamlit uploads where the dataframe is
-        already in memory.
         """
 
         df = copy_dataframe(dataframe)
@@ -104,6 +84,8 @@ class TransactionLoader:
         df = self._normalize_columns(df)
 
         require_columns(df, REQUIRED_COLUMNS)
+
+        df = self._format_identifiers(df)
 
         df = self._convert_dates(df)
 
@@ -130,6 +112,39 @@ class TransactionLoader:
         """
 
         df.columns = [str(c).strip() for c in df.columns]
+
+        return df
+
+    def _format_identifiers(
+        self,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Keep Phone and Account ID as clean text values.
+
+        Examples
+
+        221771234567.0 -> 221771234567
+        25350054.0     -> 25350054
+        """
+
+        identifier_columns = [
+            "Phone",
+            "Account ID",
+        ]
+
+        for column in identifier_columns:
+
+            if column not in df.columns:
+                continue
+
+            df[column] = (
+                df[column]
+                .fillna("")
+                .astype(str)
+                .str.replace(".0", "", regex=False)
+                .str.strip()
+            )
 
         return df
 
@@ -199,59 +214,26 @@ class TransactionLoader:
         df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Remove duplicate transactions.
-
-        Transaction ID is considered authoritative.
-
-        If it does not exist,
-        use a fallback combination.
+        Remove duplicate transactions based on Transaction ID.
         """
+
+        logger.info("Removing duplicate transactions...")
+
+        if "Transaction ID" not in df.columns:
+            return df
 
         before = len(df)
 
-        if "Transaction ID" in df.columns:
-
-            df = df.drop_duplicates(
-                subset=["Transaction ID"]
-            )
-
-        else:
-
-            df = df.drop_duplicates(
-                subset=[
-                    "Account ID",
-                    "Transaction Date",
-                    "Amount",
-                    "Transaction For",
-                ]
-            )
+        df = df.drop_duplicates(
+            subset=["Transaction ID"],
+            keep="first",
+        ).reset_index(drop=True)
 
         removed = before - len(df)
 
-        if removed > 0:
+        logger.info(
+            "Removed %s duplicate transactions",
+            removed,
+        )
 
-            logger.info(
-                "Removed %s duplicate transactions",
-                removed,
-            )
-
-        return df.reset_index(drop=True)
-
-
-# ----------------------------------------------------------------------
-# Convenience Function
-# ----------------------------------------------------------------------
-
-def load_transactions(file_path: str | Path) -> pd.DataFrame:
-    """
-    Convenience wrapper.
-
-    Example
-    -------
-
-    df = load_transactions("transactions.xlsx")
-    """
-
-    loader = TransactionLoader()
-
-    return loader.load(file_path)
+        return df
