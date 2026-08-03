@@ -131,10 +131,7 @@ class MerchantRegistry:
             )
 
             self.merchants[key] = merchant
-
-        print(
-            f"Loaded {len(self.merchants)} subscription merchants."
-        )
+        
 
     # ------------------------------------------------------
 

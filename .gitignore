@@ -1,25 +1,23 @@
-# Python virtual environment
-venv/
-
-# Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
 
 # macOS
 .DS_Store
 
-# VS Code
-.vscode/
-
-# Environment variables
-.env
-
-# Streamlit
-.streamlit/
-
-# Build folders
+# Build artifacts
 build/
 dist/
+*.spec
 
 # Logs
-*.log.venv/
+logs/
+*.log

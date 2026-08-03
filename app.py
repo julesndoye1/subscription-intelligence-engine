@@ -26,7 +26,7 @@ from core.dashboard import show_dashboard
 # ==========================================================
 
 st.set_page_config(
-    page_title="Subscription Intelligence Engine",
+    page_title="SWAP Subscription Intelligence Engine",
     page_icon="💳",
     layout="wide",
     initial_sidebar_state="expanded",
